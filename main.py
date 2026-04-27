@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client
-from openai import OpenAI
 import os
 from dotenv import load_dotenv
 
@@ -19,10 +18,8 @@ app.add_middleware(
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 
 @app.get("/")
@@ -76,38 +73,24 @@ def auto_update():
 
     state = state_res.data[0]
 
-    prompt = f"""
-你係 FreerOS AI Manager。請根據以下 state，決定下一步最實際行動，並寫一段簡短 summary。
+    goal = (state.get("current_goal") or "").lower()
+    direction = (state.get("current_direction") or "").lower()
+    decisions = (state.get("key_decisions") or "").lower()
+    constraints = state.get("constraints") or ""
 
-current_goal: {state.get("current_goal")}
-current_direction: {state.get("current_direction")}
-key_decisions: {state.get("key_decisions")}
-constraints: {state.get("constraints")}
-next_focus: {state.get("next_focus")}
-
-請只用以下格式回答：
-next_focus: <下一步行動，20字內>
-summary: <一句簡短摘要>
-"""
-
-    # 2. 用 AI 產生 next_focus + summary
-    response = openai_client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
-    )
-
-    content = response.choices[0].message.content or ""
-
-    next_focus = "Review current state"
-    summary = content.strip()
-
-    for line in content.splitlines():
-        if line.lower().startswith("next_focus:"):
-            next_focus = line.split(":", 1)[1].strip()
-        elif line.lower().startswith("summary:"):
-            summary = line.split(":", 1)[1].strip()
+    # 2. Rule-based automation（免費版，唔用 OpenAI）
+    if "frontend" in goal or "dashboard" in goal:
+        next_focus = "完成 dashboard 操作流程"
+        summary = "系統判斷目前重點是完成前端 dashboard，並確保可以清楚顯示與操作 state。"
+    elif "api" in direction or "backend" in decisions:
+        next_focus = "測試 backend API 流程"
+        summary = "系統判斷目前重點是確認 backend API 可以穩定讀寫 Supabase。"
+    elif constraints:
+        next_focus = "拆細下一步行動"
+        summary = f"系統偵測到限制：{constraints}，因此下一步應先拆細任務，避免一次做太多。"
+    else:
+        next_focus = "整理目前狀態"
+        summary = "系統已讀取目前 state，下一步應先整理目標、方向與待辦。"
 
     # 3. 更新 state
     supabase.table("state").update({
